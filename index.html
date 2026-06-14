@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>پنل مدیریت قطب‌نما</title>
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" />
+    
+    <style>
+        :root { --pink: #d97b7b; --green: #7ca881; --blue: #4ea8de; --bg: #f4f0ec; --text-dark: #2c3e50; --white: #ffffff; }
+        * { box-sizing: border-box; font-family: 'Vazirmatn', sans-serif; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text-dark); padding: 20px; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; background: var(--white); padding: 15px 25px; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h1 { font-size: 20px; color: var(--pink); font-weight: 900; }
+        
+        .layout { display: flex; gap: 20px; height: calc(100vh - 100px); }
+        
+        /* سایدبار (لیست دانش‌آموزان در انتظار) */
+        .sidebar { width: 300px; background: var(--white); border-radius: 16px; padding: 20px; overflow-y: auto; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .student-card { background: #f8f9fa; border: 1px solid #ddd; padding: 15px; border-radius: 12px; margin-bottom: 10px; cursor: pointer; transition: 0.2s; }
+        .student-card:hover { border-color: var(--blue); background: #e3f2fd; }
+        .student-card.active { border-color: var(--blue); background: var(--blue); color: var(--white); }
+        
+        /* محیط تقویم Drag & Drop */
+        .board { flex: 1; display: flex; gap: 15px; overflow-x: auto; padding-bottom: 10px; }
+        .day-column { min-width: 280px; background: var(--white); border-radius: 16px; display: flex; flex-direction: column; background: #eef2f5; border: 2px solid #ddd; }
+        .day-header { padding: 15px; background: var(--white); border-radius: 14px 14px 0 0; font-weight: 900; color: var(--text-dark); display: flex; justify-content: space-between; border-bottom: 2px solid #ddd;}
+        .block-list { padding: 10px; flex: 1; overflow-y: auto; min-height: 200px; }
+        
+        /* کارت‌های درسی (Draggable) */
+        .task-card { background: var(--white); padding: 12px; border-radius: 10px; margin-bottom: 10px; cursor: grab; border-right: 5px solid var(--green); box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: relative; }
+        .task-card:active { cursor: grabbing; transform: scale(0.98); }
+        .task-card.general { border-color: #fca311; }
+        .task-card.fixed { border-color: #6c757d; background: #f8f9fa; }
+        .task-card.break { border-color: var(--pink); background: #fdfdfd; }
+        
+        .task-title { font-weight: bold; font-size: 14px; margin-bottom: 5px; }
+        .task-time { font-size: 11px; color: #666; background: #eee; padding: 3px 8px; border-radius: 6px; display: inline-block; }
+        
+        .task-actions { position: absolute; left: 10px; top: 10px; display: flex; gap: 5px; }
+        .btn-icon { background: #eee; border: none; width: 24px; height: 24px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .btn-icon:hover { background: #ddd; }
+        .btn-delete { color: #d9534f; background: #ffeded; }
+        
+        .btn-primary { background: var(--green); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .btn-add { width: 100%; padding: 10px; background: transparent; border: 2px dashed #ccc; color: #777; border-radius: 10px; cursor: pointer; font-weight: bold; margin-top: 5px;}
+        .btn-add:hover { background: #e0e0e0; }
+
+        /* مدال (پاپ‌آپ ویرایش/افزودن) */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal { background: white; padding: 25px; border-radius: 16px; width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .modal input, .modal select { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 8px; font-family: inherit; }
+        .modal-buttons { display: flex; gap: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>⚙️ اتاق فرمان قطب‌نما (پنل ادمین)</h1>
+        <div>
+            <span id="saveStatus" style="color:var(--green); font-weight:bold; margin-left: 15px; display:none;">✅ تغییرات ذخیره شد</span>
+            <button class="btn-primary" onclick="publishSchedule()" id="btnPublish" disabled>🚀 تایید نهایی و ارسال برای دانش‌آموز</button>
+        </div>
+    </div>
+
+    <div class="layout">
+        <div class="sidebar">
+            <h3 style="margin-bottom: 15px; font-size: 15px;">📥 برنامه‌های در انتظار تایید</h3>
+            <div id="pendingList">در حال دریافت اطلاعات...</div>
+        </div>
+
+        <div class="board" id="calendarBoard" style="display: none;">
+            </div>
+    </div>
+
+    <div class="modal-overlay" id="editModal">
+        <div class="modal">
+            <h3 style="margin-bottom: 15px;" id="modalTitle">ویرایش پارت</h3>
+            <label>عنوان (نام درس یا فعالیت):</label>
+            <input type="text" id="m_title">
+            
+            <label>نوع بلوک:</label>
+            <select id="m_type">
+                <option value="study">درس (اختصاصی/عمومی)</option>
+                <option value="break">استراحت / خواب</option>
+                <option value="fixed">کلاس / ناهار / ثابت</option>
+            </select>
+            
+            <div style="display: flex; gap: 10px;">
+                <div style="flex: 1;">
+                    <label>دقیقه شروع (بامداد):</label>
+                    <input type="number" id="m_start" placeholder="مثلا 420 (07:00)">
+                </div>
+                <div style="flex: 1;">
+                    <label>دقیقه پایان (بامداد):</label>
+                    <input type="number" id="m_end" placeholder="مثلا 510 (08:30)">
+                </div>
+            </div>
+
+            <div class="modal-buttons">
+                <button class="btn-primary" style="flex: 1;" onclick="saveBlockDetails()">ذخیره</button>
+                <button class="btn-primary" style="flex: 1; background: #ccc; color: #333;" onclick="closeModal()">انصراف</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // تنظیمات سوپابیس
+        // ==========================================
+        const SUPABASE_URL = 'https://sb_publishable_N9fmFzk2F5KOD83IYJ7iFQ_ldMsqM5q.supabase.co'; // 👈 لینک خودت
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxhamt2emxidmlkaXJhZG15b3djIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0MjcyNDksImV4cCI6MjA5NzAwMzI0OX0.IB_fVUyK4kejuy88p_R7zn8xdCst9OVRqWBMoo_bNKY'; // 👈 کلید خودت
+
+        let pendingSchedules = [];
+        let currentEditingSchedule = null; // آبجکت برنامه‌ای که الان بازه
+        let editingDayIndex = null;
+        let editingBlockIndex = null;
+
+        const daysOfWeek = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه'];
+
+        async function dbRequest(endpoint, method = 'GET', body = null) {
+            const options = { method: method, headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' }};
+            if(body) options.body = JSON.stringify(body);
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/${endpoint}`, options);
+            if(!res.ok) throw new Error("DB Error");
+            return method === 'GET' || method === 'PATCH' ? await res.json() : true;
+        }
+
+        // تبدیل دقیقه به ساعت
+        function minsToTime(m) { 
+            return `${Math.floor(m/60).toString().padStart(2,'0')}:${(m%60).toString().padStart(2,'0')}`; 
+        }
+
+        // ==========================================
+        // بارگذاری برنامه‌های در انتظار
+        // ==========================================
+        async function loadPending() {
+            try {
+                // برنامه‌هایی که هنوز تایید نشدن رو میاره (به علاوه اسم دانش‌آموزها)
+                let schedules = await dbRequest(`weekly_schedules?status=eq.در انتظار&select=*,students(full_name)`);
+                pendingSchedules = schedules || [];
+                
+                let listHTML = '';
+                if(pendingSchedules.length === 0) listHTML = '<p style="color:#777; font-size:13px;">هیچ برنامه‌ای در انتظار تایید نیست.</p>';
+                
+                pendingSchedules.forEach((sch, i) => {
+                    listHTML += `
+                    <div class="student-card" id="card_${sch.id}" onclick="openSchedule(${i}, '${sch.id}')">
+                        <strong>${sch.students.full_name}</strong><br>
+                        <span style="font-size: 12px; color: #666;">${sch.week_name}</span>
+                    </div>`;
+                });
+                document.getElementById('pendingList').innerHTML = listHTML;
+            } catch(e) { console.error(e); }
+        }
+
+        function openSchedule(index, id) {
+            document.querySelectorAll('.student-card').forEach(c => c.classList.remove('active'));
+            document.getElementById(`card_${id}`).classList.add('active');
+            
+            currentEditingSchedule = pendingSchedules[index];
+            document.getElementById('btnPublish').disabled = false;
+            
+            // نمایش پیام دانش‌آموز (هوش مصنوعی) بالای صفحه (اختیاری)
+            
+            renderBoard();
+        }
+
+        // ==========================================
+        // رندر کردن تخته (Kanban Board)
+        // ==========================================
+        function renderBoard() {
+            let board = document.getElementById('calendarBoard');
+            board.style.display = 'flex';
+            board.innerHTML = '';
+
+            let scheduleArray = currentEditingSchedule.schedule_json;
+
+            scheduleArray.forEach((dayBlocks, dayIndex) => {
+                // مرتب‌سازی بلوک‌های این روز بر اساس زمان شروع
+                dayBlocks.sort((a,b) => a.start - b.start);
+
+                let col = document.createElement('div');
+                col.className = 'day-column';
+                
+                let html = `<div class="day-header"><span>📅 ${daysOfWeek[dayIndex]}</span></div>`;
+                html += `<div class="block-list" data-day="${dayIndex}" ondragover="allowDrop(event)" ondrop="drop(event)">`;
+                
+                dayBlocks.forEach((block, blockIndex) => {
+                    let cssClass = block.type === 'study' ? (block.isGen ? 'general' : '') : block.type;
+                    let timeText = `${minsToTime(block.start)} تا ${minsToTime(block.end)}`;
+                    
+                    html += `
+                    <div class="task-card ${cssClass}" draggable="true" ondragstart="drag(event, ${dayIndex}, ${blockIndex})">
+                        <div class="task-actions">
+                            <button class="btn-icon" onclick="openModal(${dayIndex}, ${blockIndex})">✏️</button>
+                            <button class="btn-icon btn-delete" onclick="deleteBlock(${dayIndex}, ${blockIndex})">🗑️</button>
+                        </div>
+                        <div style="margin-right: 45px;">
+                            <div class="task-title">${block.title}</div>
+                            <div class="task-time">${timeText}</div>
+                        </div>
+                    </div>`;
+                });
+                
+                html += `</div>`;
+                html += `<div style="padding:10px;"><button class="btn-add" onclick="openModal(${dayIndex}, null)">➕ پارت جدید</button></div>`;
+                
+                col.innerHTML = html;
+                board.appendChild(col);
+            });
+        }
+
+        // ==========================================
+        // Drag & Drop منطق
+        // ==========================================
+        let dragSourceDay = null;
+        let dragSourceIndex = null;
+
+        function allowDrop(ev) { ev.preventDefault(); }
+
+        function drag(ev, dayIndex, blockIndex) {
+            dragSourceDay = dayIndex;
+            dragSourceIndex = blockIndex;
+        }
+
+        function drop(ev) {
+            ev.preventDefault();
+            // پیدا کردن ستونی که توش رها شده
+            let targetList = ev.target.closest('.block-list');
+            if(!targetList) return;
+            
+            let targetDay = parseInt(targetList.getAttribute('data-day'));
+            
+            // جا به جایی بلوک در JSON
+            let schedule = currentEditingSchedule.schedule_json;
+            let blockToMove = schedule[dragSourceDay].splice(dragSourceIndex, 1)[0];
+            schedule[targetDay].push(blockToMove);
+            
+            // رندر مجدد تخته
+            renderBoard();
+            showSaveStatus();
+        }
+
+        // ==========================================
+        // ویرایش، حذف، افزودن
+        // ==========================================
+        function deleteBlock(dayIndex, blockIndex) {
+            if(confirm("آیا از حذف این پارت مطمئن هستید؟")) {
+                currentEditingSchedule.schedule_json[dayIndex].splice(blockIndex, 1);
+                renderBoard(); showSaveStatus();
+            }
+        }
+
+        function openModal(dayIndex, blockIndex) {
+            editingDayIndex = dayIndex;
+            editingBlockIndex = blockIndex; // اگر null باشه یعنی جدید میخوایم بسازیم
+
+            let titleEl = document.getElementById('m_title');
+            let typeEl = document.getElementById('m_type');
+            let startEl = document.getElementById('m_start');
+            let endEl = document.getElementById('m_end');
+
+            if(blockIndex !== null) {
+                document.getElementById('modalTitle').innerText = "ویرایش پارت";
+                let block = currentEditingSchedule.schedule_json[dayIndex][blockIndex];
+                titleEl.value = block.title;
+                typeEl.value = block.type;
+                startEl.value = block.start;
+                endEl.value = block.end;
+            } else {
+                document.getElementById('modalTitle').innerText = "افزودن پارت جدید";
+                titleEl.value = ''; typeEl.value = 'study'; startEl.value = ''; endEl.value = '';
+            }
+
+            document.getElementById('editModal').style.display = 'flex';
+        }
+
+        function closeModal() { document.getElementById('editModal').style.display = 'none'; }
+
+        function saveBlockDetails() {
+            let schedule = currentEditingSchedule.schedule_json;
+            let newBlock = {
+                title: document.getElementById('m_title').value,
+                type: document.getElementById('m_type').value,
+                start: parseInt(document.getElementById('m_start').value),
+                end: parseInt(document.getElementById('m_end').value),
+                isGen: false // پیش‌فرض
+            };
+
+            if(editingBlockIndex !== null) {
+                // آپدیت
+                schedule[editingDayIndex][editingBlockIndex] = newBlock;
+            } else {
+                // ساخت جدید
+                schedule[editingDayIndex].push(newBlock);
+            }
+
+            closeModal(); renderBoard(); showSaveStatus();
+        }
+
+        function showSaveStatus() {
+            let el = document.getElementById('saveStatus');
+            el.style.display = 'inline';
+            setTimeout(() => { el.style.display = 'none'; }, 2000);
+        }
+
+        // ==========================================
+        // انتشار و ثبت نهایی
+        // ==========================================
+        async function publishSchedule() {
+            if(!confirm("برنامه تایید نهایی شود و برای دانش‌آموز ارسال گردد؟")) return;
+            
+            document.getElementById('btnPublish').disabled = true;
+            document.getElementById('btnPublish').innerText = "در حال ارسال...";
+
+            try {
+                // آپدیت دیتابیس: هم JSON جدید ذخیره میشه، هم وضعیت میشه تایید شده
+                await dbRequest(`weekly_schedules?id=eq.${currentEditingSchedule.id}`, 'PATCH', {
+                    schedule_json: currentEditingSchedule.schedule_json,
+                    status: 'تایید شده'
+                });
+                
+                alert("✅ برنامه با موفقیت منتشر شد!");
+                document.getElementById('calendarBoard').style.display = 'none';
+                document.getElementById('btnPublish').disabled = true;
+                document.getElementById('btnPublish').innerText = "🚀 تایید نهایی و ارسال";
+                
+                loadPending(); // رفرش لیست
+            } catch(e) {
+                alert("خطا در انتشار!");
+                document.getElementById('btnPublish').disabled = false;
+            }
+        }
+
+        // بارگذاری اولیه
+        loadPending();
+    </script>
+</body>
+</html>
